@@ -223,7 +223,6 @@ def test_reset_minutes_negative_clamps_to_zero(monkeypatch):
 
 def test_reset_minutes_invalid_string_returns_zero(monkeypatch):
     """reset_minutes('notanumber') -> 0 (ValueError-safe)."""
-    now = time.time()
     mock_resp = _make_mock_response(
         status_code=200,
         headers={

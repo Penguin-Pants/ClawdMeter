@@ -16,9 +16,7 @@ Run: python -m pytest daemon/tests/test_windows_tray.py -x -q
 """
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from daemon.tray_windows import TrayState, header_text, _acquire_single_instance, _ERROR_ALREADY_EXISTS
 

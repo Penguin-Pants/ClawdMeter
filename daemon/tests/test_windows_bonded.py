@@ -14,8 +14,6 @@ Run: python -m pytest daemon/tests/test_windows_bonded.py -x -q
 import asyncio
 from unittest.mock import patch
 
-import pytest
-
 from daemon.claude_usage_daemon_windows import (
     _mac_from_pnp_instance_id,
     acquire_target,

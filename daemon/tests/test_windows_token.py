@@ -8,9 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-from daemon.claude_usage_daemon_windows import _extract_access_token, read_token, _windows_credential_candidates, _read_expiry
+from daemon.claude_usage_daemon_windows import _extract_access_token, read_token, _read_expiry
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -174,7 +172,6 @@ def test_main_emits_linux_warning(monkeypatch):
 
 def test_main_emits_linux_warning_before_loop(monkeypatch):
     """__main__ stderr warning appears before the async scan loop starts on Linux/WSL."""
-    import signal as _signal
     env = {**__import__("os").environ}
     env.pop("CLAUDE_CONFIG_DIR", None)
     env.pop("CLAUDE_CREDENTIALS_PATH", None)

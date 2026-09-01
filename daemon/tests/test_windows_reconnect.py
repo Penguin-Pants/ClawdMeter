@@ -11,7 +11,6 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from bleak.exc import BleakError
 
 from daemon.claude_usage_daemon_windows import (
@@ -137,8 +136,6 @@ def test_connect_retry_calls_disconnect_between_attempts(monkeypatch):
 
 def test_connect_success_on_first_attempt_no_extra_retries(monkeypatch):
     """First-attempt success consumes exactly 1 connect call and proceeds past connect block."""
-    import daemon.claude_usage_daemon_windows as mod
-
     device = _make_device()
     # stop_event is set so the loop exits immediately after connecting
     stop_event = asyncio.run(_make_event(True))
@@ -160,8 +157,6 @@ def test_connect_success_on_first_attempt_no_extra_retries(monkeypatch):
 
 def test_connect_retry_exhaustion_does_not_log_token(monkeypatch, capsys):
     """On exhaustion, no log line contains the patched token sentinel (T-03-01)."""
-    import daemon.claude_usage_daemon_windows as mod
-
     TOKEN_SENTINEL = "sk-ant-SUPERSECRET-DO-NOT-LOG-12345"
     device = _make_device()
     stop_event = asyncio.run(_make_event(False))

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  daemon-tests:
+    name: Daemon tests (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r daemon/requirements-windows.txt
+          pip install pytest pyflakes
+
+      - name: Lint (pyflakes)
+        run: python -m pyflakes daemon/*.py daemon/tests/*.py
+
+      - name: Run daemon test suite
+        run: python -m pytest daemon/tests/ -v
+
+  firmware-build:
+    name: Firmware build (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - waveshare_amoled_216
+          - waveshare_amoled_18
+          - waveshare_amoled_216_c6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # PlatformIO's toolchain install (Xtensa/RISC-V GCC, ESP-IDF Python env)
+      # is the slow part on a cold cache — several minutes per env. Caching
+      # ~/.platformio keyed on platformio.ini cuts repeat runs to seconds.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ matrix.env }}-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            platformio-${{ matrix.env }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -d firmware -e ${{ matrix.env }}

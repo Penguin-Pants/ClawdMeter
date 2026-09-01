@@ -82,6 +82,10 @@ If `pio` isn't on PATH: try `~/.platformio/penv/bin/pio` (Linux/macOS pio instal
 
 Device path differs by OS: `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux. Both expose the ESP32-S3 native USB-JTAG (no boot-mode dance needed).
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push/PR to `main`: `daemon-tests` (pytest + pyflakes over `daemon/`, seconds) and `firmware-build` (matrix `pio run` across all 3 board envs, cached `~/.platformio`). GitHub-hosted runners have normal internet access, so the firmware job can reach `dl.espressif.com` for the ESP-IDF toolchain — a sandboxed Claude Code session usually can't (see its egress policy) and must rely on this CI to verify firmware compiles.
+
 ## QA your own UI changes — don't ask the user
 
 The firmware ships a `screenshot` serial command that dumps the LVGL framebuffer. `./screenshot.sh out.png [port]` captures a PNG sized to the active display (480×480 or 368×448). **Use this on every UI iteration** — Read the PNG with the Read tool, verify the change visually, iterate. Script auto-picks the macOS/Linux default port and falls back to pio's bundled Python if pyserial isn't on the system Python.

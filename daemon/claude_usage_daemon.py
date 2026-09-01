@@ -9,7 +9,6 @@ bleak (CoreBluetooth backend on macOS).
 import asyncio
 import getpass
 import json
-import os
 import re
 import signal
 import subprocess
