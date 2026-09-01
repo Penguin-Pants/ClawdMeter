@@ -1,7 +1,7 @@
 #include "ui.h"
 #include "splash.h"
 #include <lvgl.h>
-#include "logo.h"
+#include "clawd_still.h"
 #include "icons.h"
 #include "hal/board_caps.h"
 
@@ -409,10 +409,10 @@ static void build_idle_group(lv_obj_t* parent) {
     lv_obj_clear_flag(idle_group, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(idle_group, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // A shrunk-down sleeping creature (reused claudepix "expression sleep" art)
-    // sits between the header and the status line; the animated "Listening…"
-    // status line carries the words, so no extra text is needed here.
-    lv_obj_t* creature = splash_mini_create(idle_group, "expression sleep", 160);
+    // A shrunk-down creature (reused "cloud" animation art) sits between the
+    // header and the status line; the animated "Listening…" status line
+    // carries the words, so no extra text is needed here.
+    lv_obj_t* creature = splash_mini_create(idle_group, "cloud", 160);
     if (creature) lv_obj_align(creature, LV_ALIGN_CENTER, 0, -20);
 
     lv_obj_add_flag(idle_group, LV_OBJ_FLAG_HIDDEN);  // update_view_state decides
@@ -474,7 +474,10 @@ void ui_init(void) {
     lv_obj_set_style_bg_color(scr, COL_BG, 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    init_icon_dsc_rgb565a8(&logo_dsc, LOGO_WIDTH, LOGO_HEIGHT, logo_data);
+#ifndef BOARD_HAS_PSRAM
+    // Static corner mascot (clawd_still.h) — the animated one needs PSRAM.
+    init_icon_dsc_rgb565a8(&logo_dsc, CLAWD_STILL_W, CLAWD_STILL_H, clawd_still_data);
+#endif
     init_battery_icons();
 
     init_usage_screen(scr);
@@ -484,9 +487,14 @@ void ui_init(void) {
         lv_obj_add_event_cb(splash_get_root(), global_click_cb, LV_EVENT_CLICKED, NULL);
     }
 
+#ifdef BOARD_HAS_PSRAM
+    // Corner mascot: idles, does rate-scaled acts, walk-off/lurk/walk-back trips.
+    splash_mascot_create(scr, L.margin, L.title_y - 10 + CLAWD_STILL_H, 3);
+#else
     logo_img = lv_image_create(scr);
     lv_image_set_src(logo_img, &logo_dsc);
     lv_obj_set_pos(logo_img, L.margin, L.title_y - 10);
+#endif
 
     battery_img = lv_image_create(scr);
     lv_image_set_src(battery_img, &battery_dscs[0]);
@@ -636,7 +644,9 @@ void ui_show_screen(screen_t screen) {
     default: break;
     }
 
-    if (logo_img) {
+    splash_mascot_set_visible(screen != SCREEN_SPLASH);
+
+    if (logo_img) {   // stays NULL on PSRAM boards, so this guard still no-ops correctly there
         if (screen == SCREEN_SPLASH) lv_obj_add_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
         else                          lv_obj_clear_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
     }
