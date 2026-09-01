@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  splash-geometry-test:
+    name: Splash geometry unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          g++ -std=c++17 -I firmware/src firmware/test/test_splash_geometry/test_main.cpp -o /tmp/geo_test
+          /tmp/geo_test
+
   daemon-tests:
     name: Daemon tests (Python)
     runs-on: ubuntu-latest
