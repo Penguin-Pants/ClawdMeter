@@ -82,9 +82,15 @@ If `pio` isn't on PATH: try `~/.platformio/penv/bin/pio` (Linux/macOS pio instal
 
 Device path differs by OS: `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux. Both expose the ESP32-S3 native USB-JTAG (no boot-mode dance needed).
 
+There's a 4th env, `[env:sim]` (native desktop SDL2 simulator — see below); `platformio.ini` has no `default_envs`, so a bare `pio run -d firmware` with no `-e` now also attempts `sim` and fails without `libsdl2-dev` installed. `flash.sh`/`flash-mac.sh` always pass `-e "$BOARD"` so they're unaffected.
+
+## Desktop simulator
+
+`pio run -d firmware -e sim` builds a native SDL2 desktop binary (`platform = native`, no ESP-IDF toolchain) — the exact same `main.cpp`/`ui.cpp`/`splash.cpp` running against an SDL2-backed HAL instead of real hardware: mouse as touch, keyboard as buttons, a JSONL-scenario-playback stub in place of `ble.cpp`. See [`SIM-USAGE.md`](SIM-USAGE.md) for the full control map, scenario format, and headless-screenshot recipe (`SDL_VIDEODRIVER=dummy SIM_AUTOSHOT_MS=...`). Requires `libsdl2-dev` (`apt install libsdl2-dev` / `brew install sdl2`). Good for fast UI iteration; it does **not** exercise panel-specific behavior (CO5300 rotation remapping, C6's no-PSRAM direct-draw path, real flush timing) — always confirm panel-related changes on real hardware too.
+
 ## CI
 
-`.github/workflows/ci.yml` runs on every push/PR to `main`: `daemon-tests` (pytest + pyflakes over `daemon/`, seconds) and `firmware-build` (matrix `pio run` across all 3 board envs, cached `~/.platformio`). GitHub-hosted runners have normal internet access, so the firmware job can reach `dl.espressif.com` for the ESP-IDF toolchain — a sandboxed Claude Code session usually can't (see its egress policy) and must rely on this CI to verify firmware compiles.
+`.github/workflows/ci.yml` runs on every push/PR to `main`: `daemon-tests` (pytest + pyflakes over `daemon/`, seconds) and `firmware-build` (matrix `pio run` across all 3 hardware board envs + `sim`, cached `~/.platformio`). GitHub-hosted runners have normal internet access, so the firmware job can reach `dl.espressif.com` for the ESP-IDF toolchain — a sandboxed Claude Code session usually can't (see its egress policy) and must rely on this CI to verify firmware compiles. The `sim` matrix entry additionally installs `libsdl2-dev` and runs a headless smoke test (`SIM_AUTOSHOT_MS`) that actually exercises `setup()` + real `loop()` iterations, uploading the resulting screenshot as a build artifact.
 
 ## QA your own UI changes — don't ask the user
 
