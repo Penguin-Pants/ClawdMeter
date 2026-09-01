@@ -81,6 +81,7 @@ A new screen size lands on the closer breakpoint and renders correctly
 without pixel-perfect alignment. If you want polish, add another branch
 to `compute_layout()` (please open a PR — others with that size benefit).
 
-The splash screen is fully responsive — `CELL` is computed as
-`min(width, height) / 20` so the 20×20 pixel-art creature fills the
-smaller display dimension and centers in the larger one.
+The splash screen is fully responsive — `splash_compute_geometry()`
+(`firmware/src/splash_geometry.h`) computes a per-pixel cell size as
+`min(width, height) / 60` so the 60×60 art stage fills the smaller
+display dimension and centers in the larger one.
