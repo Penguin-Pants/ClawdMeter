@@ -38,12 +38,18 @@ jobs:
           - waveshare_amoled_216
           - waveshare_amoled_18
           - waveshare_amoled_216_c6
+          - sim
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # sim is `platform = native` — no ESP-IDF toolchain, just SDL2 dev headers.
+      - name: Install SDL2 (sim env only)
+        if: matrix.env == 'sim'
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
 
       # PlatformIO's toolchain install (Xtensa/RISC-V GCC, ESP-IDF Python env)
       # is the slow part on a cold cache — several minutes per env. Caching
@@ -61,3 +67,19 @@ jobs:
 
       - name: Build firmware
         run: pio run -d firmware -e ${{ matrix.env }}
+
+      # The sim binary actually runs setup() + real loop() iterations headlessly —
+      # a stronger check than "does it compile", and something no other env can do
+      # without real hardware.
+      - name: Headless smoke test (sim only)
+        if: matrix.env == 'sim'
+        run: |
+          cd firmware
+          SDL_VIDEODRIVER=dummy SIM_AUTOSHOT_MS=3000 .pio/build/sim/program
+
+      - name: Upload sim screenshot
+        if: matrix.env == 'sim'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-autoshot
+          path: firmware/sim-autoshot.bmp
