@@ -11,7 +11,6 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from bleak.exc import BleakError
 
 from daemon.claude_usage_daemon_windows import (
@@ -137,8 +136,6 @@ def test_connect_retry_calls_disconnect_between_attempts(monkeypatch):
 
 def test_connect_success_on_first_attempt_no_extra_retries(monkeypatch):
     """First-attempt success consumes exactly 1 connect call and proceeds past connect block."""
-    import daemon.claude_usage_daemon_windows as mod
-
     device = _make_device()
     # stop_event is set so the loop exits immediately after connecting
     stop_event = asyncio.run(_make_event(True))
@@ -160,8 +157,6 @@ def test_connect_success_on_first_attempt_no_extra_retries(monkeypatch):
 
 def test_connect_retry_exhaustion_does_not_log_token(monkeypatch, capsys):
     """On exhaustion, no log line contains the patched token sentinel (T-03-01)."""
-    import daemon.claude_usage_daemon_windows as mod
-
     TOKEN_SENTINEL = "sk-ant-SUPERSECRET-DO-NOT-LOG-12345"
     device = _make_device()
     stop_event = asyncio.run(_make_event(False))
@@ -427,7 +422,7 @@ def test_next_backoff_at_cap_stays():
 
 
 def test_main_scan_miss_uses_search_backoff():
-    """When scan_for_device returns None, asyncio.wait_for receives search_backoff timeout values."""
+    """When acquire_target returns None, asyncio.wait_for receives search_backoff timeout values."""
     import daemon.claude_usage_daemon_windows as mod
 
     # Capture main()'s internal stop_event by intercepting asyncio.Event()
@@ -443,7 +438,7 @@ def test_main_scan_miss_uses_search_backoff():
     call_count = [0]
     MAX_CALLS = 3
 
-    async def fake_scan():
+    async def fake_acquire():
         return None  # always miss -> slow-search regime
 
     async def fake_wait_for(coro, timeout):
@@ -454,7 +449,7 @@ def test_main_scan_miss_uses_search_backoff():
         raise asyncio.TimeoutError()
 
     with patch("daemon.claude_usage_daemon_windows.asyncio.Event", side_effect=capturing_Event), \
-         patch("daemon.claude_usage_daemon_windows.scan_for_device", side_effect=fake_scan), \
+         patch("daemon.claude_usage_daemon_windows.acquire_target", side_effect=fake_acquire), \
          patch("daemon.claude_usage_daemon_windows.asyncio.wait_for", side_effect=fake_wait_for):
         _run(mod.main())
 
@@ -485,7 +480,7 @@ def test_main_connect_fail_uses_reconnect_backoff():
     call_count = [0]
     MAX_CALLS = 3
 
-    async def fake_scan():
+    async def fake_acquire():
         return fake_device  # always finds device
 
     async def fake_connect_and_run(device, event, tray_state=None):
@@ -499,7 +494,7 @@ def test_main_connect_fail_uses_reconnect_backoff():
         raise asyncio.TimeoutError()
 
     with patch("daemon.claude_usage_daemon_windows.asyncio.Event", side_effect=capturing_Event), \
-         patch("daemon.claude_usage_daemon_windows.scan_for_device", side_effect=fake_scan), \
+         patch("daemon.claude_usage_daemon_windows.acquire_target", side_effect=fake_acquire), \
          patch("daemon.claude_usage_daemon_windows.connect_and_run", side_effect=fake_connect_and_run), \
          patch("daemon.claude_usage_daemon_windows.asyncio.wait_for", side_effect=fake_wait_for):
         _run(mod.main())
@@ -533,7 +528,7 @@ def test_main_reconnect_backoff_reset_on_success():
     connect_results = [False, True, False]
     connect_idx = [0]
 
-    async def fake_scan():
+    async def fake_acquire():
         return fake_device
 
     async def fake_connect_and_run(device, event, tray_state=None):
@@ -551,7 +546,7 @@ def test_main_reconnect_backoff_reset_on_success():
         raise asyncio.TimeoutError()
 
     with patch("daemon.claude_usage_daemon_windows.asyncio.Event", side_effect=capturing_Event), \
-         patch("daemon.claude_usage_daemon_windows.scan_for_device", side_effect=fake_scan), \
+         patch("daemon.claude_usage_daemon_windows.acquire_target", side_effect=fake_acquire), \
          patch("daemon.claude_usage_daemon_windows.connect_and_run", side_effect=fake_connect_and_run), \
          patch("daemon.claude_usage_daemon_windows.asyncio.wait_for", side_effect=fake_wait_for):
         _run(mod.main())

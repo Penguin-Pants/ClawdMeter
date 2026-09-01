@@ -7,9 +7,7 @@ patch("daemon.autostart_windows.winreg", ...) so they run on any platform.
 
 Run: python -m pytest daemon/tests/test_windows_autostart.py -x -q
 """
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------

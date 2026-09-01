@@ -6,10 +6,11 @@ via PlatformIO's `build_src_filter`. Adding a board means dropping in a new
 folder + a new `[env:...]` block — `main.cpp`, `ui.cpp`, and `splash.cpp`
 never see board-specific code. See [`docs/porting/adding-a-board.md`](docs/porting/adding-a-board.md).
 
-Two reference ports today:
+Three reference ports today:
 
 - `boards/waveshare_amoled_216/` — original Waveshare ESP32-S3-Touch-AMOLED-2.16 (CO5300, 480×480 square, CST9220 touch, IMU rotation). Build env: `waveshare_amoled_216`.
 - `boards/waveshare_amoled_18/` — Waveshare ESP32-S3-Touch-AMOLED-1.8 (368×448 portrait, XCA9554 IO expander). Build env: `waveshare_amoled_18`. **Two panel revisions are auto-detected at boot** (`board_rev()` in `board_init.cpp`, enum in `board_rev.h`): original = SH8601 display + FT3168 touch (0x38); later = CO5300 display + CST816 touch (0x15). One binary drives both.
+- `boards/waveshare_amoled_216_c6/` — ESP32-C6 sibling of the AMOLED-2.16 (same CO5300 panel/touch/PMU/IMU). Build env: `waveshare_amoled_216_c6`. Single-core RISC-V, **no PSRAM** (shared code gates on `BOARD_HAS_PSRAM` to fall back to `MALLOC_CAP_INTERNAL` and shrink LVGL/splash buffers), BLE 5.3 only (no classic BT), 16 MB flash with a custom partition table. Screenshot capture is unsupported on this board (no room for a full RGB565 framebuffer in internal SRAM).
 
 The shared code calls a small HAL (`firmware/src/hal/`) that each board implements: display, touch, input, power, IMU. Optional features are guarded by `BoardCaps` (runtime) and `BOARD_HAS_*` (compile-time) rather than `#ifdef BOARD_*`.
 
@@ -48,9 +49,10 @@ firmware/src/
   boards/
     waveshare_amoled_216/   — CO5300 + CST9220 + AXP PKEY + QMI8658 rotation
     waveshare_amoled_18/    — SH8601 + FT3168 + AXP + XCA9554 (PWR via EXIO4), no rotation
+    waveshare_amoled_216_c6/ — ESP32-C6 sibling of amoled_216, no PSRAM, BLE 5.3 only
     template/               — copy this to bootstrap a new port
   main.cpp                  — setup() + loop(): HAL calls only, zero #ifdef BOARD_*
-  ui.{h,cpp}                — 3-screen UI (splash, usage, bluetooth). compute_layout() picks fonts/positions from board_caps() (responsive — current breakpoint: H >= 460 → large, else compact)
+  ui.{h,cpp}                — 2-screen UI (splash, usage — the bluetooth pairing screen was folded into usage). compute_layout() picks fonts/positions from board_caps() (responsive — current breakpoint: H >= 460 → large, else compact)
   splash.{h,cpp}            — 20×20 pixel-art engine. CELL = min(W,H)/20, centered.
   ble.{h,cpp}               — NimBLE peripheral: custom data service + HID keyboard
   data.h                    — UsageData struct
@@ -80,11 +82,15 @@ If `pio` isn't on PATH: try `~/.platformio/penv/bin/pio` (Linux/macOS pio instal
 
 Device path differs by OS: `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux. Both expose the ESP32-S3 native USB-JTAG (no boot-mode dance needed).
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push/PR to `main`: `daemon-tests` (pytest + pyflakes over `daemon/`, seconds) and `firmware-build` (matrix `pio run` across all 3 board envs, cached `~/.platformio`). GitHub-hosted runners have normal internet access, so the firmware job can reach `dl.espressif.com` for the ESP-IDF toolchain — a sandboxed Claude Code session usually can't (see its egress policy) and must rely on this CI to verify firmware compiles.
+
 ## QA your own UI changes — don't ask the user
 
 The firmware ships a `screenshot` serial command that dumps the LVGL framebuffer. `./screenshot.sh out.png [port]` captures a PNG sized to the active display (480×480 or 368×448). **Use this on every UI iteration** — Read the PNG with the Read tool, verify the change visually, iterate. Script auto-picks the macOS/Linux default port and falls back to pio's bundled Python if pyserial isn't on the system Python.
 
-The boot screen is `SCREEN_SPLASH` and only advances on a physical button press, so a fresh flash will sit on the splash. To screenshot the screen you're actually editing without asking the user to press a button, **temporarily change the default boot screen** in `main.cpp` (search for `ui_show_screen(SCREEN_SPLASH);`) to `SCREEN_USAGE` / `SCREEN_CONTROLLER` / `SCREEN_BLUETOOTH`, do your iteration, then revert before committing.
+The boot screen is `SCREEN_SPLASH` and only advances on a physical button press, so a fresh flash will sit on the splash. To screenshot the screen you're actually editing without asking the user to press a button, **temporarily change the default boot screen** in `main.cpp` (search for `ui_show_screen(SCREEN_SPLASH);`) to `SCREEN_USAGE` (the only other screen — `ui.h`'s `screen_t` is just `SCREEN_SPLASH` / `SCREEN_USAGE` / `SCREEN_COUNT`; pairing/bluetooth state now renders as a status line on the usage screen, not a separate screen), do your iteration, then revert before committing.
 
 ## Critical gotchas
 
@@ -98,6 +104,8 @@ The boot screen is `SCREEN_SPLASH` and only advances on a physical button press,
 8. **LVGL RGB565A8 is planar.** `w*h` RGB565 pixels followed by `w*h` alpha bytes; `data_size = w*h*3`, `stride = w*2`. Use `init_icon_dsc_rgb565a8()` for icons that overlap non-uniform backgrounds (e.g. battery over splash). Lucide source PNGs are black-on-transparent — converter must tint to white or icons render invisible. See `tools/png_to_lvgl.js`.
 9. **Per-board pre-init is `board_init()`.** Each board's `board_init.cpp` brings up `Wire` and any reset-gating IO expander BEFORE `display_hal_init()`. Skipping the IO expander release on AMOLED-1.8 leaves SH8601 + FT3168 in reset and they silently fail to probe.
 10. **No `#ifdef BOARD_*` in shared code.** The whole point of the refactor — if you're about to add one, you probably want a `BoardCaps` field or a per-board file instead. See `docs/porting/capability-flags.md`.
+11. **BLE is single-owner-locked.** `ble.cpp` persists the bonded identity address of the first machine to pair (NVS namespace `"clawd"`) and rejects/un-bonds any other machine that tries to pair or write usage data — otherwise any nearby BLE central could write fake usage data or steal the display. To hand the board to a different machine, hold PWR ~3s then release (`pair_tick()` in `main.cpp` → `ble_clear_bonds()`), which clears bonds **and** releases ownership.
+12. **Windows clamps the BLE supervision timeout to 2s** once the daemon's GATT session is active (vs. 9.6s while only the OS HID driver holds the link), and this board's antenna sees RF nulls that don't survive a 2s window — the cause of "ERROR_CANCELLED / Device disconnected" churn seen only on Windows. Fixed via PPCP build flags (`MYNEWT_VAL_BLE_SVC_GAP_PPCP_*` in `platformio.ini`) plus a deferred one-shot connection-parameter request in `ble.cpp` (`onConnParamsUpdate` / `onAuthenticationComplete` arm it, `ble_tick()` sends it ~2s later so it doesn't race Windows' own update transaction).
 
 ## Icons
 
@@ -121,6 +129,7 @@ See `~/.claude/projects/.../memory/` files for persistent context (user is an em
 
 ## Recent session highlights
 
+- **Windows BLE reliability + owner-lock security fix (2026-09-01, ported from upstream `HermannBjorgvin/Clawdmeter`).** Windows-specific supervision-timeout churn fixed via PPCP build flags + deferred conn-param request in `ble.cpp` (see gotcha #12). BLE writes now require a bonded+encrypted link from a single NVS-persisted owner machine (gotcha #11) — previously any nearby BLE central could write usage data. Windows daemon gained a bonded-address PnP fallback (device stops advertising once Windows holds it connected) and hardened WinRT bare-fault handling with a crash-supervised restart loop in the tray. This repo was a point-in-time copy of upstream (not a live fork) and had drifted ~90 commits behind; these were the highest-value fixes identified by comparing the two. `waveshare_amoled_216_c6` board and the 2-screen (splash/usage) UI were already present but undocumented — now reflected above.
 - **Device-abstraction refactor (2026-05-18).** All board-conditional code moved out of shared files into `boards/<name>/` and behind a HAL in `hal/`. ~30 `#ifdef BOARD_*` blocks went to zero. UI is responsive via `compute_layout()` driven by `board_caps()`. New ports add a folder + a PlatformIO env — no shared file edits.
 - Added second board port: Waveshare AMOLED-1.8 (368×448 portrait, SH8601, FT3168, XCA9554 IO expander).
 - Migrated from Panlee SC01 Plus (480×320 IPS) to Waveshare 2.16" AMOLED (480×480 square). Full hardware/library swap.
@@ -139,6 +148,7 @@ Bash daemon (`daemon/claude-usage-daemon.sh`) reads OAuth token, polls Anthropic
 - Connects by name (`"Clawdmeter"`) on first run, caches resolved MAC at `~/.config/claude-usage-monitor/ble-address`. ESP32 BLE addresses are factory-burned per-chip, so swapping any board invalidates the cache.
 - On connect failure: cache is dropped AND device is removed from bluez (`bluetoothctl remove`) so the next scan won't re-pick a dead MAC. Multi-candidate scans pick `head -1` and let the failure cycle converge.
 - `POLL_INTERVAL=60`, `TICK=5`. Inner loop wakes every 5s to detect disconnects fast; polls Anthropic when 60s elapsed OR when ESP fires a refresh request.
+- **Windows (`daemon/claude_usage_daemon_windows.py`, run via `tray_windows.py`)**: once paired, Windows keeps the device connected as a bonded HID keyboard, so it *stops advertising* and a plain scan can never find it again. `acquire_target()` scans first (works on a fresh boot) then falls back to `discover_bonded_address()`, which recovers the MAC from the Windows PnP table (`Get-PnpDevice`) and hands `BleakClient` a `BLEDevice` built from it — a bare address string forces WinRT through a scan that will never succeed for a non-advertising bonded device. Override with `CLAWDMETER_BLE_ADDRESS` to skip PnP lookup. `tray_windows.py`'s `_run_daemon` supervises `daemon_main()` and auto-restarts it with capped backoff on crash (bleak's WinRT backend can raise bare `AssertionError`/`OSError` that aren't wrapped as `BleakError`) — a clean stop (Quit) sets `_quit_requested` first so the supervisor never resurrects it.
 
 **GATT characteristics on service `4c41555a-...0001`:**
 
