@@ -19,6 +19,7 @@ from daemon.claude_usage_daemon_windows import (
     Session,
     _wait_first,
     connect_and_run,
+    scan_for_device,
 )
 
 
@@ -78,6 +79,31 @@ def test_connect_retry_exhaustion_on_timeout_error(monkeypatch, capsys):
 
     mock_client = AsyncMock()
     mock_client.connect = AsyncMock(side_effect=asyncio.TimeoutError())
+    mock_client.is_connected = False
+    mock_client.disconnect = AsyncMock()
+
+    with patch("daemon.claude_usage_daemon_windows.BleakClient", return_value=mock_client), \
+         patch("daemon.claude_usage_daemon_windows.asyncio.sleep", new=AsyncMock()):
+        result = _run(connect_and_run(device, stop_event))
+
+    assert result is False
+    assert mock_client.connect.call_count == mod.CONNECT_RETRIES
+
+
+def test_connect_retry_exhaustion_on_oserror(monkeypatch):
+    """Raw OSError/WinError (NOT wrapped as BleakError) on every connect attempt —
+    the same WinRT quirk documented on write_payload/start_notify/scan_for_device —
+    must retry CONNECT_RETRIES times and return False, not propagate and kill the
+    daemon thread (field report: 'daemon crashed: <ExceptionClassName>')."""
+    import daemon.claude_usage_daemon_windows as mod
+
+    device = _make_device()
+    stop_event = asyncio.run(_make_event(False))
+
+    mock_client = AsyncMock()
+    mock_client.connect = AsyncMock(
+        side_effect=OSError(-2147023673, "The operation was canceled by the user.")
+    )
     mock_client.is_connected = False
     mock_client.disconnect = AsyncMock()
 
@@ -566,6 +592,57 @@ def test_requirements_windows_contains_required_deps():
     assert "pystray" in lines, "pystray must be in requirements-windows.txt (Phase 4)"
     assert "pillow" in lines, "Pillow must be in requirements-windows.txt (Phase 4)"
     assert "winreg" not in lines, "winreg is stdlib — must NOT be in requirements-windows.txt"
+
+
+# ---------------------------------------------------------------------------
+# scan_for_device: WinRT scan failure must not crash the daemon
+# ---------------------------------------------------------------------------
+# Field report: with the Windows Bluetooth radio off, disabled, or missing,
+# WinRT raises out of BleakScanner.find_device_by_name itself (not just
+# "device not found in range") — either BleakError or a raw OSError/WinError,
+# same quirk class as write_payload/setup_refresh_subscription/client.connect().
+# Uncaught, this propagated out of main()'s loop entirely and killed the
+# daemon=True thread (tray: "daemon crashed: <ExceptionClassName>", e.g. a
+# Bleak/Bluetooth "not available" error).
+
+def test_scan_for_device_oserror_returns_none_not_raises():
+    """Raw OSError out of the WinRT scan call must not propagate."""
+    import daemon.claude_usage_daemon_windows as mod
+
+    with patch.object(
+        mod.BleakScanner,
+        "find_device_by_name",
+        new=AsyncMock(side_effect=OSError(-2147023673, "The operation was canceled by the user.")),
+    ):
+        result = _run(scan_for_device())
+
+    assert result is None  # caught and reported, not raised
+
+
+def test_scan_for_device_bleak_error_returns_none_not_raises():
+    """The pre-existing-style BleakError path must also return None (no
+    regression from widening the except to also cover OSError)."""
+    import daemon.claude_usage_daemon_windows as mod
+
+    with patch.object(
+        mod.BleakScanner,
+        "find_device_by_name",
+        new=AsyncMock(side_effect=BleakError("Bluetooth device is turned off")),
+    ):
+        result = _run(scan_for_device())
+
+    assert result is None
+
+
+def test_scan_for_device_returns_device_on_success():
+    """Sanity: the happy path is unchanged by the added try/except."""
+    import daemon.claude_usage_daemon_windows as mod
+
+    fake_device = _make_device()
+    with patch.object(mod.BleakScanner, "find_device_by_name", new=AsyncMock(return_value=fake_device)):
+        result = _run(scan_for_device())
+
+    assert result is fake_device
 
 
 # ---------------------------------------------------------------------------
