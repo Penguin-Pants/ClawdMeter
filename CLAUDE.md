@@ -53,11 +53,13 @@ firmware/src/
     template/               — copy this to bootstrap a new port
   main.cpp                  — setup() + loop(): HAL calls only, zero #ifdef BOARD_*
   ui.{h,cpp}                — 2-screen UI (splash, usage — the bluetooth pairing screen was folded into usage). compute_layout() picks fonts/positions from board_caps() (responsive — current breakpoint: H >= 460 → large, else compact)
-  splash.{h,cpp}            — 20×20 pixel-art engine. CELL = min(W,H)/20, centered.
+  splash.{h,cpp}            — 60×60-stage art engine + corner mascot. Cell = min(W,H)/60, centered.
+  splash_geometry.h         — pure-C cell/scale math, unit-tested standalone (firmware/test/test_splash_geometry/)
+  clawd_still.h             — static idle-pose bitmap, C6/no-PSRAM fallback for the animated mascot
   ble.{h,cpp}               — NimBLE peripheral: custom data service + HID keyboard
   data.h                    — UsageData struct
   icons.h                   — icon arrays. Battery (5×) are RGB565A8 with alpha; rest are raw RGB565.
-  logo.h                    — 80×80 RGB565 logo
+  logo.h                    — 80×80 RGB565 logo. No longer used by firmware (ui.cpp uses clawd_still.h) — kept only because `daemon/icon_assets.py::load_logo_rgba()` parses it at runtime to build the Windows tray icon.
   font_*.c                  — pre-compiled LVGL 9 bitmap fonts (Tiempos 56/34, Styrene 48/28/24/20/16/14/12, Mono 32/18)
   splash_animations.h       — generated, do not hand-edit
 docs/porting/               — adding-a-board.md, hal-contract.md, capability-flags.md
@@ -94,7 +96,7 @@ There's a 4th env, `[env:sim]` (native desktop SDL2 simulator — see below); `p
 
 ## QA your own UI changes — don't ask the user
 
-The firmware ships a `screenshot` serial command that dumps the LVGL framebuffer. `./screenshot.sh out.png [port]` captures a PNG sized to the active display (480×480 or 368×448). **Use this on every UI iteration** — Read the PNG with the Read tool, verify the change visually, iterate. Script auto-picks the macOS/Linux default port and falls back to pio's bundled Python if pyserial isn't on the system Python.
+The firmware ships a `screenshot` serial command that dumps the LVGL framebuffer. `./screenshot.sh out.png [port]` captures a PNG sized to the active display (480×480 or 368×448). **Use this on every UI iteration** — Read the PNG with the Read tool, verify the change visually, iterate. Script auto-picks the macOS/Linux default port and falls back to pio's bundled Python if pyserial isn't on the system Python. If no hardware is attached (e.g. a sandboxed session), `pio run -d firmware -e sim` + `SDL_VIDEODRIVER=dummy SIM_AUTOSHOT_MS=<ms> .pio/build/sim/program` gets the same kind of screenshot without any board at all — see `SIM-USAGE.md`.
 
 The boot screen is `SCREEN_SPLASH` and only advances on a physical button press, so a fresh flash will sit on the splash. To screenshot the screen you're actually editing without asking the user to press a button, **temporarily change the default boot screen** in `main.cpp` (search for `ui_show_screen(SCREEN_SPLASH);`) to `SCREEN_USAGE` (the only other screen — `ui.h`'s `screen_t` is just `SCREEN_SPLASH` / `SCREEN_USAGE` / `SCREEN_COUNT`; pairing/bluetooth state now renders as a status line on the usage screen, not a separate screen), do your iteration, then revert before committing.
 
@@ -119,15 +121,26 @@ The boot screen is `SCREEN_SPLASH` and only advances on a physical button press,
 
 ## Splash animations
 
-13 × 20×20 pixel-art creature animations sourced from
-[claudepix.vercel.app](https://claudepix.vercel.app). Pipeline:
+17 official Anthropic "Clawd" mascot animations (GIF/Lottie source), archived
+with provenance notes in [`research/clawd-official/`](research/clawd-official/CLAUDE.md).
+Pipeline:
 
 ```bash
-node tools/scrape_claudepix.js  # → tools/claudepix_data/*.json
-node tools/convert_to_c.js      # → firmware/src/splash_animations.h
+node tools/convert_official_clawd.js   # research/clawd-official/* → firmware/src/splash_animations.h
 ```
 
-Each animation has a per-animation 10-color RGB565 palette. Cell values 0..9 index it. Default boot screen.
+Requires ImageMagick (`convert`/`identify` on PATH). Each animation carries its
+own crop size, stage offset, and ≤16-color palette (cell values index it) — see
+`firmware/src/splash_geometry.h`/`splash.cpp` for the 60×60-stage compositing,
+intro→loop→outro playback, and the corner-mascot state machine that reuses this
+same data. Default boot screen. The pre-generated header is checked in — you
+don't need ImageMagick unless you're re-running the converter, e.g. after
+updating a source asset in `research/clawd-official/`.
+
+**Provenance / licensing**: this uses Anthropic's own copyrighted "Clawd"
+mascot art without an explicit license grant — see the "Licensing gray area
+warning" in the root [`README.md`](README.md) and the sourcing notes in
+[`research/clawd-official/CLAUDE.md`](research/clawd-official/CLAUDE.md).
 
 ## User profile / preferences
 
@@ -135,6 +148,7 @@ See `~/.claude/projects/.../memory/` files for persistent context (user is an em
 
 ## Recent session highlights
 
+- **Official Clawd splash art + corner mascot (2026-09-01, ported from upstream `HermannBjorgvin/Clawdmeter`).** Replaced the scraped claudepix.vercel.app fan-art splash engine (20×20 grid, `tools/scrape_claudepix.js`) with Anthropic's own official "Clawd" mascot art on a new 60×60-stage engine (`splash_geometry.h`, rewritten `splash.cpp`) with intro→loop→outro playback and foot-locked walk translation. PSRAM boards also gained an animated corner mascot on the usage screen (idles, plays rate-scaled acts, walks off/lurks/walks back — `splash_mascot_*` in `splash.cpp`); the no-PSRAM path (C6) was rewritten to bypass the LVGL canvas entirely (dirty-cell diff + direct `display_hal_draw_bitmap()`) since the old canvas+scale approach cost 100-220ms/frame at the new 60-grid size, and falls back to a static `clawd_still.h` bitmap in place of the mascot. `firmware/src/logo.h` is no longer used by firmware (kept only for `daemon/icon_assets.py`'s Windows tray icon parser). Landed alongside a native SDL2 desktop simulator (`[env:sim]`, see `SIM-USAGE.md`) so this kind of UI work can be iterated and screenshotted without flashing hardware.
 - **Windows BLE reliability + owner-lock security fix (2026-09-01, ported from upstream `HermannBjorgvin/Clawdmeter`).** Windows-specific supervision-timeout churn fixed via PPCP build flags + deferred conn-param request in `ble.cpp` (see gotcha #12). BLE writes now require a bonded+encrypted link from a single NVS-persisted owner machine (gotcha #11) — previously any nearby BLE central could write usage data. Windows daemon gained a bonded-address PnP fallback (device stops advertising once Windows holds it connected) and hardened WinRT bare-fault handling with a crash-supervised restart loop in the tray. This repo was a point-in-time copy of upstream (not a live fork) and had drifted ~90 commits behind; these were the highest-value fixes identified by comparing the two. `waveshare_amoled_216_c6` board and the 2-screen (splash/usage) UI were already present but undocumented — now reflected above.
 - **Device-abstraction refactor (2026-05-18).** All board-conditional code moved out of shared files into `boards/<name>/` and behind a HAL in `hal/`. ~30 `#ifdef BOARD_*` blocks went to zero. UI is responsive via `compute_layout()` driven by `board_caps()`. New ports add a folder + a PlatformIO env — no shared file edits.
 - Added second board port: Waveshare AMOLED-1.8 (368×448 portrait, SH8601, FT3168, XCA9554 IO expander).

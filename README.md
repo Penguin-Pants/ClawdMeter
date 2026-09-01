@@ -12,7 +12,7 @@ Shift+Tab over BLE HID for Claude Code's voice mode and mode-toggle shortcuts.
 | :-----------------------------------: | :----------------------------------------------: |
 | ![Usage meter](assets/demo.jpeg) | ![Clawd animation screen](assets/demo.gif) |
 
-The Clawd animations come from [claudepix](https://claudepix.vercel.app), [@amaanbuilds](https://x.com/amaanbuilds)'s library of pixel-art Clawd sprites, check it out, it's lovely.
+The Clawd animations are Anthropic's own official mascot art (archived with sourcing notes in `research/clawd-official/`), converted by `tools/convert_official_clawd.js`.
 
 ## Screens
 
@@ -302,25 +302,24 @@ Default tint is white (`0xFFFFFF`); Lucide PNGs ship as black-on-transparent and
 
 ## Splash animations
 
-The animations come from [claudepix.vercel.app](https://claudepix.vercel.app),
-a library of Clawd sprites. `tools/scrape_claudepix.js` evaluates the
-site's JavaScript in a Node VM to pull out frame data and palettes, then
-`tools/convert_to_c.js` turns everything into RGB565 C arrays and writes
+The animations are Anthropic's own official "Clawd" mascot art, archived
+with provenance notes in `research/clawd-official/`. `tools/convert_official_clawd.js`
+decodes the source GIFs/Lottie exports (via ImageMagick) and writes
 `firmware/src/splash_animations.h`.
 
-To re-pull (e.g. when the source library updates):
+To re-run (e.g. after updating a source asset):
 
 ```bash
-node tools/scrape_claudepix.js
-node tools/convert_to_c.js
+node tools/convert_official_clawd.js
 pio run -d firmware -t upload
 ```
 
-See `tools/README.md` for details.
+See `tools/README.md` for details. A desktop simulator (`pio run -d firmware -e sim`,
+see `SIM-USAGE.md`) can preview animation/UI changes without flashing hardware.
 
 ## Credits
 
-- Pixel-art Clawd animation by [@amaanbuilds](https://x.com/amaanbuilds), sourced from [claudepix.vercel.app](https://claudepix.vercel.app). Frame data and palettes scraped + converted by the tooling in `tools/`.
+- Clawd mascot animations are Anthropic's own official art (see `research/clawd-official/CLAUDE.md` for sourcing). Frame data, palettes, and loop regions extracted by the tooling in `tools/`.
 - Lucide icon set ([lucide.dev](https://lucide.dev), MIT) for bluetooth and battery UI glyphs.
 - Anthropic brand fonts (Tiempos Text, Styrene B) — see licensing warning below.
 
