@@ -163,9 +163,22 @@ async def poll_api(token: str) -> dict | None:
 
 
 async def scan_for_device():
-    """Scan for DEVICE_NAME and return the BLEDevice, or None."""
+    """Scan for DEVICE_NAME and return the BLEDevice, or None.
+
+    When the Windows Bluetooth radio itself is off, disabled, or missing (not
+    just "device not in range"), WinRT can raise BleakError or a raw
+    OSError/WinError out of the scan call itself — the same backend quirk
+    class documented on write_payload/setup_refresh_subscription below.
+    Uncaught, this killed the whole daemon thread (tray: "daemon crashed:
+    <ExceptionClassName>", field report). Treat it as "not found this cycle"
+    so the caller's existing search-backoff loop retries instead.
+    """
     log(f"Scanning for '{DEVICE_NAME}' ({SCAN_TIMEOUT}s)...")
-    device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=SCAN_TIMEOUT)
+    try:
+        device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=SCAN_TIMEOUT)
+    except (BleakError, OSError) as e:
+        log(f"Scan failed: {e}")
+        return None
     if device:
         log(f"Found: {device.address}")
     return device  # BLEDevice or None — NOT an address string
@@ -346,11 +359,13 @@ async def connect_and_run(device, stop_event: asyncio.Event, tray_state=None) ->
         )
         try:
             await client.connect()
-        except (BleakError, asyncio.TimeoutError) as e:
+        # WinRT can raise a raw OSError/WinError (NOT wrapped as BleakError) here
+        # too — same quirk as write_payload/setup_refresh_subscription/scan_for_device.
+        except (BleakError, OSError, asyncio.TimeoutError) as e:
             log(f"Connection attempt {attempt + 1}/{CONNECT_RETRIES} failed: {e}")
             try:
                 await client.disconnect()
-            except BleakError:
+            except (BleakError, OSError):
                 pass
             if attempt < CONNECT_RETRIES - 1:
                 await asyncio.sleep(CONNECT_RETRY_DELAY)
@@ -360,7 +375,7 @@ async def connect_and_run(device, stop_event: asyncio.Event, tray_state=None) ->
             log(f"Connection attempt {attempt + 1}/{CONNECT_RETRIES} failed (not connected)")
             try:
                 await client.disconnect()
-            except BleakError:
+            except (BleakError, OSError):
                 pass
             if attempt < CONNECT_RETRIES - 1:
                 await asyncio.sleep(CONNECT_RETRY_DELAY)
