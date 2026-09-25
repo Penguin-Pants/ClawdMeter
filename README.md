@@ -248,6 +248,8 @@ You don't need to burn through your real quota to see the split-flap countdown. 
 
 While the test runs, real usage from your computer is received but not shown. A reboot also ends the test.
 
+The board echoes every command it receives as `> ...`. Type `help` to list the commands. If the board replies `Unknown command. Bytes: ...`, those hex bytes show exactly what arrived.
+
 ## Recompiling fonts
 
 The `firmware/src/font_*.c` files are pre-compiled LVGL bitmap fonts.

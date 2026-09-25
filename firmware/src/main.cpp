@@ -201,10 +201,10 @@ static void fake_limit_cmd(const char* arg) {
     fake_limit_on = true;
     fake_limit_start_mins = mins;
     fake_limit_start_ms = millis();
-    fake_limit_send();
     Serial.printf("fakelimit: on, 100%% with %d min left (%d:%02d). "
                   "Needs the BLE host connected. 'fakelimit off' to stop.\n",
                   mins, mins / 60, mins % 60);
+    fake_limit_send();
 }
 
 static void fake_limit_tick(void) {
@@ -213,15 +213,53 @@ static void fake_limit_tick(void) {
     }
 }
 
+static void print_serial_help(void) {
+    Serial.println("Commands: screenshot | fakelimit [mins] | fakelimit off | help");
+}
+
+// Run one received line. Everything except `screenshot` is echoed back first
+// ("> ...") so a person typing in a serial monitor can see what the board
+// actually received — `screenshot` stays silent because screenshot.sh reads
+// the reply as binary.
+static void run_serial_cmd(char* line) {
+    while (*line == ' ') line++;
+    size_t n = strlen(line);
+    while (n && line[n - 1] == ' ') line[--n] = '\0';
+    if (n == 0) return;
+    for (char* p = line; *p; p++) {
+        if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
+    }
+
+    if (strcmp(line, "screenshot") == 0) { send_screenshot(); return; }
+
+    Serial.printf("> %s\n", line);
+    if (strncmp(line, "fakelimit", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
+        fake_limit_cmd(line + 9);
+    } else if (strcmp(line, "help") == 0) {
+        print_serial_help();
+    } else {
+        // Hex dump exposes bytes a terminal doesn't show (non-ASCII input).
+        Serial.print("Unknown command. Bytes:");
+        for (const char* p = line; *p; p++) Serial.printf(" %02X", (uint8_t)*p);
+        Serial.println();
+        print_serial_help();
+    }
+}
+
+// Line editor for serial monitors that send each key as it is typed:
+// Enter (CR or LF) runs the line, Backspace/DEL removes the last character,
+// other control bytes are ignored so they can't corrupt a command.
 static void check_serial_cmd() {
     while (Serial.available()) {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
             cmd_buf[cmd_pos] = '\0';
-            if (strcmp(cmd_buf, "screenshot") == 0) send_screenshot();
-            else if (strncmp(cmd_buf, "fakelimit", 9) == 0 &&
-                     (cmd_buf[9] == '\0' || cmd_buf[9] == ' ')) fake_limit_cmd(cmd_buf + 9);
+            run_serial_cmd(cmd_buf);
             cmd_pos = 0;
+        } else if (c == '\b' || c == 0x7F) {
+            if (cmd_pos > 0) cmd_pos--;
+        } else if ((uint8_t)c < 0x20) {
+            // ignore other control bytes
         } else if (cmd_pos < CMD_BUF_SIZE - 1) {
             cmd_buf[cmd_pos++] = c;
         }
