@@ -44,7 +44,7 @@ daemon payload plus two optional keys:
 - `"name"` — shown in the window title
 - `"hold_ms"` — time on this state (default 3000)
 
-Lines starting with `#` are comments. Payload fields match `UsageData`
+The default scenario includes two "limit reached" states (4:12, then 4:11); jump between them to watch a card flip. Lines starting with `#` are comments. Payload fields match `UsageData`
 (`firmware/src/data.h`): `s`/`sr` (session % / reset minutes), `w`/`wr`
 (weekly % / reset minutes), `st` (status string), `ok`.
 

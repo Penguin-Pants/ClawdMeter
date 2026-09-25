@@ -226,6 +226,28 @@ JSON payload format (written to RX):
 
 Fields: `s` = session %, `sr` = session reset (minutes), `w` = weekly %, `wr` = weekly reset (minutes), `st` = status, `ok` = success flag.
 
+## Testing the "Limit reached" screen
+
+You don't need to burn through your real quota to see the split-flap countdown. The firmware has a `fakelimit` serial command:
+
+1. Keep the board connected to your computer over BLE (tray app or daemon running). The usage view needs a live BLE link.
+2. Open a serial monitor on the board's USB port (Windows example, use your own COM port):
+
+   ```bash
+   pio device monitor -d firmware -p COM5 -b 115200 --echo
+   ```
+
+3. Tap the screen to leave the splash, then type one of these and press Enter:
+
+| Command | Effect |
+|---|---|
+| `fakelimit` | Fake a 100% session with 4:12 left |
+| `fakelimit 61` | Start at 1:01. After about 2 minutes it reaches 0:59, and 3 cards flip at once |
+| `fakelimit 1` | Start at 0:01, then hold at 00:00 |
+| `fakelimit off` | End the test and show real usage again |
+
+While the test runs, real usage from your computer is received but not shown. A reboot also ends the test.
+
 ## Recompiling fonts
 
 The `firmware/src/font_*.c` files are pre-compiled LVGL bitmap fonts.
