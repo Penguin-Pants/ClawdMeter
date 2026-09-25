@@ -158,12 +158,69 @@ static void send_screenshot() {
 #endif
 }
 
+// ---- Test mode: fake a reached 5h limit ----
+// `fakelimit [mins]` over serial shows the "Limit reached" split-flap screen
+// without burning through a real quota: it injects session=100% with `mins`
+// until reset (default 252 = 4:12) and re-sends it every FAKE_LIMIT_RESEND_MS,
+// counting down, so the view stays "fresh" and the cards flip each minute.
+// Real BLE usage is still ACKed but not shown while the test runs, so the host
+// daemon can stay connected (the usage view needs a live BLE link). RAM only:
+// `fakelimit off` or a reboot ends it.
+#define FAKE_LIMIT_RESEND_MS 30000
+static bool     fake_limit_on = false;
+static int      fake_limit_start_mins = 0;
+static uint32_t fake_limit_start_ms = 0;
+static uint32_t fake_limit_sent_ms = 0;
+
+static void fake_limit_send(void) {
+    UsageData d = usage;   // keep the last real weekly numbers, if any
+    int elapsed = (int)((millis() - fake_limit_start_ms) / 60000);
+    int mins = fake_limit_start_mins - elapsed;
+    d.session_pct = 100.0f;
+    d.session_reset_mins = mins < 0 ? 0 : mins;
+    strlcpy(d.status, "limited", sizeof(d.status));
+    d.ok = true;
+    d.valid = true;
+    ui_update(&d);
+    fake_limit_sent_ms = millis();
+}
+
+static void fake_limit_cmd(const char* arg) {
+    while (*arg == ' ') arg++;
+    if (strcmp(arg, "off") == 0) {
+        fake_limit_on = false;
+        Serial.println("fakelimit: off, requesting real data");
+        ble_request_refresh();
+        return;
+    }
+    int mins = *arg ? atoi(arg) : 252;
+    if (mins < 0 || mins > 99 * 60 + 59) {
+        Serial.println("fakelimit: minutes must be 0..5999");
+        return;
+    }
+    fake_limit_on = true;
+    fake_limit_start_mins = mins;
+    fake_limit_start_ms = millis();
+    fake_limit_send();
+    Serial.printf("fakelimit: on, 100%% with %d min left (%d:%02d). "
+                  "Needs the BLE host connected. 'fakelimit off' to stop.\n",
+                  mins, mins / 60, mins % 60);
+}
+
+static void fake_limit_tick(void) {
+    if (fake_limit_on && millis() - fake_limit_sent_ms >= FAKE_LIMIT_RESEND_MS) {
+        fake_limit_send();
+    }
+}
+
 static void check_serial_cmd() {
     while (Serial.available()) {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
             cmd_buf[cmd_pos] = '\0';
             if (strcmp(cmd_buf, "screenshot") == 0) send_screenshot();
+            else if (strncmp(cmd_buf, "fakelimit", 9) == 0 &&
+                     (cmd_buf[9] == '\0' || cmd_buf[9] == ' ')) fake_limit_cmd(cmd_buf + 9);
             cmd_pos = 0;
         } else if (cmd_pos < CMD_BUF_SIZE - 1) {
             cmd_buf[cmd_pos++] = c;
@@ -357,6 +414,7 @@ void loop() {
     }
 
     check_serial_cmd();
+    fake_limit_tick();
 
     if (ble_has_data()) {
         if (parse_json(ble_get_data(), &usage)) {
@@ -368,7 +426,7 @@ void loop() {
                     g_before, g_after, usage.session_pct);
                 if (splash_is_active()) splash_pick_for_current_rate();
             }
-            ui_update(&usage);
+            if (!fake_limit_on) ui_update(&usage);   // test mode owns the screen
             ble_send_ack();
         } else {
             ble_send_nack();
