@@ -254,6 +254,18 @@ lv_font_conv --font assets/DejaVuSansMono.ttf \
   -r 0x20-0x7E,0xB7,0x2026,0x2722,0x2733,0x2736,0x273B,0x273D \
   --size 32 --format lvgl --bpp 4 --no-compress \
   -o firmware/src/font_mono_32.c --lv-include "lvgl.h"
+
+# Tiempos Text 44px ("Limit reached" headline on the compact 368x448 layout)
+lv_font_conv --font assets/TiemposText-400-Regular.otf -r 0x20-0x7E \
+  --size 44 --format lvgl --bpp 4 --no-compress \
+  -o firmware/src/font_tiempos_44.c --lv-include "lvgl.h"
+
+# DejaVu Sans Mono digits only (split-flap countdown cards: 112 large, 88 compact)
+for size in 112 88; do
+  lv_font_conv --font assets/DejaVuSansMono.ttf -r 0x30-0x39 \
+    --size $size --format lvgl --bpp 4 --no-compress \
+    -o firmware/src/font_dejavu_digits_${size}.c --lv-include "lvgl.h"
+done
 ```
 
 **Important:** `lv_font_conv` v1.5.3 outputs LVGL 8 format. Each generated file must be patched for LVGL 9 compatibility:

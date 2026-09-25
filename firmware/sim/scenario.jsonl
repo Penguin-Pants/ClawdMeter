@@ -5,5 +5,7 @@
 {"name":"steady use","hold_ms":3000,"s":42.0,"sr":180,"w":33.0,"wr":7900,"st":"allowed","ok":true}
 {"name":"warning zone","hold_ms":3000,"s":78.0,"sr":75,"w":55.0,"wr":6400,"st":"allowed","ok":true}
 {"name":"maxed out","hold_ms":4000,"s":98.0,"sr":12,"w":88.0,"wr":5200,"st":"limited","ok":true}
+{"name":"limit reached","hold_ms":5000,"s":100.0,"sr":252,"w":90.0,"wr":5150,"st":"limited","ok":true}
+{"name":"limit reached, next poll","hold_ms":4000,"s":100.0,"sr":251,"w":90.0,"wr":5149,"st":"limited","ok":true}
 {"name":"session reset","hold_ms":4000,"s":2.0,"sr":298,"w":88.0,"wr":5100,"st":"allowed","ok":true}
 {"name":"weekly nearly gone","hold_ms":3000,"s":25.0,"sr":250,"w":96.0,"wr":300,"st":"allowed","ok":true}
