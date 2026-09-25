@@ -36,9 +36,7 @@ When your 5-hour session reaches 100%, the usage view changes to a "Limit reache
 - At 00:00 the cards hold until the window resets and the usage panels return.
 - The "Usage" title is hidden on this screen, so "Limit reached" is the only heading.
 
-Upstream showed the "No data" idle screen in this situation. When you hit the limit, the API answers with HTTP 429, and the daemon threw that response away. The Windows daemon in this fork reads the usage headers from 429 responses too, so the board learns that you are at 100%. The Linux daemon already read the headers from every response.
-
-> **Known limitation (macOS):** the macOS daemon still discards 429 responses, so on macOS the board shows "No data" instead of the limit screen when you hit your limit.
+Upstream showed the "No data" idle screen in this situation. When you hit the limit, the API answers with HTTP 429, and the daemon threw that response away. The Windows and macOS daemons in this fork read the usage headers from 429 responses too, so the board learns that you are at 100%. The Linux daemon already read the headers from every response.
 
 You don't need to use up your quota to see the screen. The firmware has a [`fakelimit` test command](#testing-the-limit-reached-screen).
 
@@ -85,9 +83,9 @@ The usage view shows one of four states:
 
 | Board | Build env | Screen | Buttons |
 |---|---|---|---|
-| [Waveshare ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm?&aff_id=149786) | `waveshare_amoled_216` | 480×480 | 3 |
-| [Waveshare ESP32-C6-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-c6-touch-amoled-2.16.htm?&aff_id=149786) | `waveshare_amoled_216_c6` | 480×480 | 3 |
-| [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm?&aff_id=149786) | `waveshare_amoled_18` | 368×448 | 2 |
+| [Waveshare ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm) | `waveshare_amoled_216` | 480×480 | 3 |
+| [Waveshare ESP32-C6-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-c6-touch-amoled-2.16.htm) | `waveshare_amoled_216_c6` | 480×480 | 3 |
+| [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) | `waveshare_amoled_18` | 368×448 | 2 |
 
 - **AMOLED-1.8:** two panel revisions ship under this name. The firmware detects which one you have at boot, so one build drives both.
 - **C6:** has no PSRAM, so it gets a still corner mascot and doesn't support the `screenshot` command.

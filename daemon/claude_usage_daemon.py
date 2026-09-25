@@ -280,8 +280,15 @@ async def poll_api(token: str) -> dict | None:
         log(f"API call failed: {e}")
         return None
     if resp.status_code >= 400:
-        log(f"API HTTP {resp.status_code}: {resp.text[:200]}")
-        return None
+        # 429 from a fully-exhausted 5h window still ships the same
+        # anthropic-ratelimit-* headers as a 200 — fall through to the
+        # extractor so the firmware learns we're at 100% (otherwise it
+        # stays "No data" instead of switching to the limit-reached screen).
+        # Other 4xx/5xx without those headers stay transient → None.
+        if not resp.headers.get("anthropic-ratelimit-unified-5h-utilization"):
+            log(f"API HTTP {resp.status_code}: {resp.text[:200]}")
+            return None
+        log(f"API HTTP {resp.status_code} (rate-limited; extracting headers)")
 
     def hdr(name: str, default: str = "0") -> str:
         return resp.headers.get(name, default)
