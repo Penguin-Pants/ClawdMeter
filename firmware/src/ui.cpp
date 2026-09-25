@@ -4,9 +4,11 @@
 #include "clawd_still.h"
 #include "icons.h"
 #include "hal/board_caps.h"
+#include "flipcard.h"
 
 // Custom fonts (scaled for 314 PPI, ~1.9x from original 165 PPI)
 LV_FONT_DECLARE(font_tiempos_56);
+LV_FONT_DECLARE(font_tiempos_44);
 LV_FONT_DECLARE(font_tiempos_34);
 LV_FONT_DECLARE(font_styrene_48);
 LV_FONT_DECLARE(font_styrene_28);
@@ -15,6 +17,8 @@ LV_FONT_DECLARE(font_styrene_20);
 LV_FONT_DECLARE(font_styrene_16);
 LV_FONT_DECLARE(font_styrene_14);
 LV_FONT_DECLARE(font_mono_32);
+LV_FONT_DECLARE(font_dejavu_digits_112);
+LV_FONT_DECLARE(font_dejavu_digits_88);
 
 // Layout values computed from the active board's geometry. Populated once
 // in ui_init() and treated as const for the rest of the program. Adding a
@@ -42,9 +46,16 @@ struct Layout {
     const lv_font_t* bt_credit_1_font;
     const lv_font_t* bt_credit_2_font;
 
-    // Usage-limit-reached screen
+    // Usage-limit-reached screen: headline + HH:MM split-flap row
     const lv_font_t* limit_title_font;
-    const lv_font_t* limit_reset_font;
+    int16_t limit_title_y;      // headline top, relative to the screen
+    int16_t flip_y;             // card row top, relative to the screen
+    int16_t flip_w, flip_h;     // one card
+    int16_t flip_pair_gap;      // gap between the two cards of a pair
+    int16_t flip_colon_w;       // slot holding the two colon dots
+    int16_t flip_dot;           // colon dot diameter
+    int16_t flip_radius;
+    const lv_font_t* flip_font;
 };
 static Layout L = {};
 
@@ -72,8 +83,16 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_28;
         L.bt_credit_1_font = &font_styrene_24;
         L.bt_credit_2_font = &font_styrene_20;
-        L.limit_title_font = &font_tiempos_34;
-        L.limit_reset_font = &font_styrene_28;
+        L.limit_title_font = &font_tiempos_56;
+        L.limit_title_y  = 130;
+        L.flip_y         = 224;
+        L.flip_w         = 92;
+        L.flip_h         = 136;
+        L.flip_pair_gap  = 8;
+        L.flip_colon_w   = 40;
+        L.flip_dot       = 12;
+        L.flip_radius    = 10;
+        L.flip_font      = &font_dejavu_digits_112;
     } else {
         // Compact layout — tuned for 368x448 (AMOLED-1.8).
         L.content_y = 85;
@@ -88,8 +107,17 @@ static void compute_layout(const BoardCaps& c) {
         L.bt_device_font   = &font_styrene_20;
         L.bt_credit_1_font = &font_styrene_16;
         L.bt_credit_2_font = &font_styrene_14;
-        L.limit_title_font = &font_styrene_28;
-        L.limit_reset_font = &font_styrene_20;
+        // Tiempos 56 "Limit reached" is 367 px — too wide for 328 px here.
+        L.limit_title_font = &font_tiempos_44;
+        L.limit_title_y  = 136;
+        L.flip_y         = 212;
+        L.flip_w         = 72;
+        L.flip_h         = 108;
+        L.flip_pair_gap  = 6;
+        L.flip_colon_w   = 32;
+        L.flip_dot       = 10;
+        L.flip_radius    = 8;
+        L.flip_font      = &font_dejavu_digits_88;
     }
 
     L.content_w = L.scr_w - 2 * L.margin;
@@ -130,11 +158,12 @@ static lv_image_dsc_t battery_dscs[5];  // empty, low, medium, full, charging
 // ---- Live-data freshness → which usage sub-view to show ----
 // usage panels when data is flowing, an idle "Zzz" screen when the host is
 // connected but no usage update landed within DATA_FRESH_MS, the pairing hint
-// when BLE is down, the "Usage Limit Reached" screen when the 5h window is at
+// when BLE is down, the "Limit reached" screen when the 5h window is at
 // 100%. Re-evaluated every loop in ui_tick_anim().
 static lv_obj_t* idle_group;            // the "Zzz" idle screen
-static lv_obj_t* limit_group;           // "Usage Limit Reached" + countdown
-static lv_obj_t* lbl_limit_reset;       // "Resets in Xhr Ymin"
+static lv_obj_t* limit_group;           // "Limit reached" + split-flap countdown
+static FlipCard      limit_cards[4];    // H H : M M
+static FlipCardStyle limit_card_style;
 static uint32_t  last_data_ms = 0;      // lv_tick when the last valid usage update landed
 static bool      data_received = false; // any valid update since boot
 static int       view_state = -1;       // -1 unknown / 0 pair / 1 idle / 2 usage / 3 limit
@@ -146,7 +175,7 @@ static const uint32_t DATA_FRESH_MS = 90000;  // usage counts as "live" within t
 static bool      limit_at_pct = false;          // last data showed session_pct >= 100
 static uint32_t  limit_anchor_ms = 0;           // lv_tick when limit_anchor_reset_mins was captured
 static int       limit_anchor_reset_mins = 0;   // session_reset_mins at that moment
-static uint32_t  limit_label_last_ms = 0;       // last time we re-formatted the countdown label
+static uint32_t  limit_label_last_ms = 0;       // last time the countdown cards were updated
 
 // ---- Shared ----
 static lv_image_dsc_t logo_dsc;
@@ -224,19 +253,6 @@ static void format_reset_time(int mins, char* buf, size_t len) {
     } else {
         snprintf(buf, len, "Resets in %dd %dh", mins / 1440, (mins % 1440) / 60);
     }
-}
-
-// Slightly longer-form variant used only on the "Usage Limit Reached" screen.
-// The user-facing copy here is more prominent (the countdown is one of just two
-// things on the screen), so we spell the units out — "Resets in 2hr 14min"
-// vs the compact "Resets in 2h 14m" we use inside the per-panel reset line.
-static void format_limit_reset(int mins, char* buf, size_t len) {
-    if (mins < 0) mins = 0;
-    int h = mins / 60;
-    int m = mins % 60;
-    if (h == 0)      snprintf(buf, len, "Resets in %dmin", m);
-    else if (m == 0) snprintf(buf, len, "Resets in %dhr", h);
-    else             snprintf(buf, len, "Resets in %dhr %dmin", h, m);
 }
 
 // Forward decls — callbacks defined near ui_show_screen below
@@ -364,13 +380,13 @@ static void build_pair_group(lv_obj_t* parent) {
     lv_obj_add_flag(pair_group, LV_OBJ_FLAG_HIDDEN);  // ui_update_ble_status decides
 }
 
-// "Usage Limit Reached" screen — shown when the daemon reports session_pct >= 100.
-// One-line headline + a live countdown until the 5h window resets. Same toggle
-// geometry as pair_group / idle_group so update_view_state() can swap between
-// them. The countdown is anchored to the last poll's reset_mins (captured in
-// ui_update()) and re-ticked locally each minute in ui_tick_anim() — the daemon
-// re-anchors on every poll, so the local tick just smooths the minute-by-minute
-// count between polls.
+// "Limit reached" screen — shown when the daemon reports session_pct >= 100.
+// Headline + an HH:MM split-flap countdown until the 5h window resets. Same
+// toggle geometry as pair_group / idle_group so update_view_state() can swap
+// between them. The countdown is anchored to the last poll's reset_mins
+// (captured in ui_update()) and re-ticked locally each minute in
+// ui_tick_anim() — the daemon re-anchors on every poll, so the local tick just
+// smooths the minute-by-minute count between polls.
 static void build_limit_group(lv_obj_t* parent) {
     limit_group = lv_obj_create(parent);
     lv_obj_set_size(limit_group, L.scr_w, L.scr_h - L.content_y);
@@ -382,18 +398,74 @@ static void build_limit_group(lv_obj_t* parent) {
     lv_obj_add_flag(limit_group, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t* headline = lv_label_create(limit_group);
-    lv_label_set_text(headline, "Usage Limit Reached");
+    lv_label_set_text(headline, "Limit reached");
     lv_obj_set_style_text_font(headline, L.limit_title_font, 0);
     lv_obj_set_style_text_color(headline, COL_TEXT, 0);
-    lv_obj_align(headline, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_align(headline, LV_ALIGN_TOP_MID, 0, L.limit_title_y - L.content_y);
 
-    lbl_limit_reset = lv_label_create(limit_group);
-    lv_label_set_text(lbl_limit_reset, "Resets in --");
-    lv_obj_set_style_text_font(lbl_limit_reset, L.limit_reset_font, 0);
-    lv_obj_set_style_text_color(lbl_limit_reset, COL_DIM, 0);
-    lv_obj_align(lbl_limit_reset, LV_ALIGN_CENTER, 0, 20);
+    limit_card_style = {
+        L.flip_w, L.flip_h, L.flip_radius, L.flip_font,
+        THEME_FLAP_HI, THEME_FLAP_LO, COL_TEXT,
+    };
+
+    // H H : M M, centered as one row.
+    int16_t row_w = 4 * L.flip_w + 2 * L.flip_pair_gap + L.flip_colon_w;
+    int16_t x = (L.scr_w - row_w) / 2;
+    int16_t y = L.flip_y - L.content_y;
+    int16_t colon_x = x + 2 * L.flip_w + L.flip_pair_gap;
+    int16_t xs[4] = {
+        x,
+        (int16_t)(x + L.flip_w + L.flip_pair_gap),
+        (int16_t)(colon_x + L.flip_colon_w),
+        (int16_t)(colon_x + L.flip_colon_w + L.flip_w + L.flip_pair_gap),
+    };
+    for (int i = 0; i < 4; i++) {
+        flipcard_init(&limit_cards[i], limit_group, xs[i], y, &limit_card_style);
+    }
+
+    int16_t dot_gap = L.flip_h * 22 / 100;
+    int16_t dot_x = colon_x + (L.flip_colon_w - L.flip_dot) / 2;
+    int16_t dot_ys[2] = {
+        (int16_t)(y + L.flip_h / 2 - dot_gap / 2 - L.flip_dot),
+        (int16_t)(y + L.flip_h / 2 + dot_gap / 2),
+    };
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t* dot = lv_obj_create(limit_group);
+        lv_obj_remove_style_all(dot);
+        lv_obj_set_style_bg_color(dot, COL_TEXT, 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+        lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_pos(dot, dot_x, dot_ys[i]);
+        lv_obj_set_size(dot, L.flip_dot, L.flip_dot);
+    }
 
     lv_obj_add_flag(limit_group, LV_OBJ_FLAG_HIDDEN);  // update_view_state decides
+}
+
+// Minutes left in the 5h window, counted down locally from the last poll's
+// anchor. Never negative: at 0 the cards hold 00:00 until the next poll.
+static int limit_remaining_mins(void) {
+    int elapsed = (int)((lv_tick_get() - limit_anchor_ms) / 60000);
+    int remaining = limit_anchor_reset_mins - elapsed;
+    return remaining < 0 ? 0 : remaining;
+}
+
+// Put `mins` on the HH:MM cards. animate=false snaps every card (screen entry);
+// animate=true flips only the cards whose digit changed. A jump of several
+// minutes flips once, straight to the new digit.
+static void limit_cards_show(int mins, bool animate) {
+    if (mins < 0) mins = 0;
+    if (mins > 99 * 60 + 59) mins = 99 * 60 + 59;
+    int h = mins / 60, m = mins % 60;
+    char d[4] = {
+        (char)('0' + h / 10), (char)('0' + h % 10),
+        (char)('0' + m / 10), (char)('0' + m % 10),
+    };
+    for (int i = 0; i < 4; i++) {
+        if (animate) flipcard_flip_to(&limit_cards[i], d[i]);
+        else         flipcard_set(&limit_cards[i], d[i]);
+    }
 }
 
 // Idle "Zzz" screen — shown when the host is connected but no usage update has
@@ -526,20 +598,20 @@ void ui_update(const UsageData* data) {
     lv_label_set_text(lbl_weekly_reset, buf);
 
     // 5h window exhausted → re-anchor the limit-screen countdown to this poll's
-    // reset_mins, and update the displayed label immediately so a freshly-arrived
-    // sample doesn't sit on a stale value waiting for the next 60s tick.
+    // reset_mins, and update the cards immediately so a freshly-arrived sample
+    // doesn't sit on a stale value waiting for the next 60s tick. Flip only if
+    // the limit screen is already up; on entry update_view_state() snaps them.
     limit_at_pct = (s_pct >= 100);
     if (limit_at_pct) {
         limit_anchor_ms = last_data_ms;
         limit_anchor_reset_mins = data->session_reset_mins;
-        format_limit_reset(data->session_reset_mins, buf, sizeof(buf));
-        lv_label_set_text(lbl_limit_reset, buf);
+        limit_cards_show(limit_remaining_mins(), view_state == 3);
         limit_label_last_ms = last_data_ms;
     }
 }
 
 // Pick the usage-view sub-screen: pairing hint (BLE down), the idle "Zzz" screen
-// (connected but data has gone stale), the "Usage Limit Reached" screen (5h
+// (connected but data has gone stale), the "Limit reached" screen (5h
 // window at 100%), or the live usage panels. Only re-lays-out on an actual
 // change. The animated status line stays visible everywhere — it reads
 // "Listening…" on the idle and limit screens, keeping it alive rather than
@@ -568,6 +640,16 @@ static void update_view_state(void) {
                    : (v == 3) ? limit_group
                               : usage_group;
     lv_obj_clear_flag(show, LV_OBJ_FLAG_HIDDEN);
+
+    // "Limit reached" is the only heading on the limit screen — the "Usage"
+    // title would stack a second 56 px serif line above it.
+    if (v == 3) {
+        lv_obj_add_flag(lbl_title, LV_OBJ_FLAG_HIDDEN);
+        limit_cards_show(limit_remaining_mins(), false);
+        limit_label_last_ms = lv_tick_get();
+    } else {
+        lv_obj_clear_flag(lbl_title, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void ui_tick_anim(void) {
@@ -577,15 +659,12 @@ void ui_tick_anim(void) {
 
     uint32_t now = lv_tick_get();
 
-    // Limit-screen countdown — re-format once per minute. The daemon refreshes
-    // limit_anchor_* on every poll (~60s); this local tick smooths the displayed
-    // minute between polls so it never sits stale on the same value.
-    if (view_state == 3 && lbl_limit_reset && now - limit_label_last_ms >= 60000) {
-        int elapsed_min = (int)((now - limit_anchor_ms) / 60000);
-        int remaining = limit_anchor_reset_mins - elapsed_min;
-        char rbuf[48];
-        format_limit_reset(remaining, rbuf, sizeof(rbuf));
-        lv_label_set_text(lbl_limit_reset, rbuf);
+    // Limit-screen countdown — re-check once per minute and flip the cards
+    // that changed. The daemon refreshes limit_anchor_* on every poll (~60s);
+    // this local tick smooths the displayed minute between polls so it never
+    // sits stale on the same value.
+    if (view_state == 3 && now - limit_label_last_ms >= 60000) {
+        limit_cards_show(limit_remaining_mins(), true);
         limit_label_last_ms = now;
     }
 
