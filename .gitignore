@@ -27,3 +27,7 @@ __pycache__/
 
 # get-platformio.py downloaded installer (regenerate with curl if needed)
 /get-platformio.py
+
+# PyInstaller output (build-windows-exe.ps1)
+/build/
+/dist/
