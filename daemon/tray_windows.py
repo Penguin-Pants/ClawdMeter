@@ -31,13 +31,18 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# Frozen as Clawdmeter.exe (PyInstaller, see build-windows-exe.ps1): bundled
+# data files (logo.h) are unpacked under sys._MEIPASS, not next to __file__.
+_FROZEN = getattr(sys, "frozen", False)
+_RESOURCE_ROOT = getattr(sys, "_MEIPASS", _REPO_ROOT) if _FROZEN else _REPO_ROOT
+
 # Autostart launches us with the BASE interpreter's pythonw.exe, not the venv's
 # (see autostart_windows._command — the venv pythonw redirector pops a console
 # window). The base interpreter does NOT see the venv's site-packages, so add
 # them here to resolve pystray/bleak/PIL. os.path.isdir guards the no-venv and
 # already-inside-venv cases; site.addsitedir is a no-op on a missing dir anyway.
 _VENV_SITE = os.path.join(_REPO_ROOT, ".venv", "Lib", "site-packages")
-if os.path.isdir(_VENV_SITE):
+if not _FROZEN and os.path.isdir(_VENV_SITE):
     import site
     site.addsitedir(_VENV_SITE)
 
@@ -184,7 +189,7 @@ def main() -> None:
     from daemon.icon_assets import load_logo_rgba, build_state_icons
 
     # Build per-state icons once at startup; swap icon.icon per tick (never recomposite).
-    base = load_logo_rgba(os.path.join(_REPO_ROOT, "firmware", "src", "logo.h"))
+    base = load_logo_rgba(os.path.join(_RESOURCE_ROOT, "firmware", "src", "logo.h"))
     images = build_state_icons(base)
 
     ts = TrayState()

@@ -212,6 +212,25 @@ Use the tray menu toggle, or remove the registry value manually:
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Clawdmeter /f
 ```
 
+### Standalone executable
+
+To package the tray app as a single self-contained `.exe` (no Python needed on
+the machine that runs it):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-windows-exe.ps1
+```
+
+This installs PyInstaller into `.venv` and writes `dist\Clawdmeter.exe` — a
+windowless tray app you can copy anywhere and double-click. Add `-Console` to
+build `dist\Clawdmeter-console.exe` instead, which shows the daemon log output
+for debugging.
+
+"Start at login" from the exe's tray menu points the Run value at the exe
+itself. If autostart was previously enabled from the script install, toggle it
+off and on once from the exe to repoint it. The exe is unsigned, so SmartScreen
+may warn on first launch.
+
 ### WSL independence
 
 The daemon operates fully independently of WSL. The token is read from native Windows

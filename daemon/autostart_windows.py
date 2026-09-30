@@ -56,6 +56,11 @@ def _command(tray_script: str | None = None) -> str:
                      module's own path (useful when autostart_windows.py IS
                      the entry point, but callers should pass tray_windows.py).
     """
+    # Frozen Clawdmeter.exe (PyInstaller): the exe IS the tray app and is
+    # already windowless. __file__ would point into the onefile temp extraction
+    # dir, which is deleted on exit, so ignore tray_script entirely.
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
     pythonw = os.path.join(sys.base_exec_prefix, "pythonw.exe")
     script = os.path.abspath(tray_script if tray_script is not None else __file__)
     return f'"{pythonw}" "{script}"'
