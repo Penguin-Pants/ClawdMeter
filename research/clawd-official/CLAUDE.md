@@ -6,7 +6,7 @@ third-party sprite set). `README.md` in this folder is the asset inventory;
 this file records where the assets came from, how to get more, and the
 classification that the firmware state machine is built on. The conversion
 pipeline (`tools/convert_official_clawd.js`) and the 60×60-stage splash engine
-implementing this are in the tree; see the root CLAUDE.md.
+implementing this are in the tree; see `README.md` and `tools/README.md`.
 
 ## Where the assets came from (methodology)
 
