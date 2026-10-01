@@ -148,8 +148,8 @@ launchctl load -w ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist # st
 ```bash
 bluetoothctl scan le
 # When "Clawdmeter" appears:
-bluetoothctl pair F4:12:FA:C0:8F:E5    # use your board's MAC
-bluetoothctl trust F4:12:FA:C0:8F:E5
+bluetoothctl pair AA:BB:CC:DD:EE:FF    # use your board's MAC
+bluetoothctl trust AA:BB:CC:DD:EE:FF
 ```
 
 **3. Install the daemon.** It checks your usage every 60 seconds and sends it to the board.
